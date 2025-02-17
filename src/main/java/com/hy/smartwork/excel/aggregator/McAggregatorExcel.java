@@ -30,6 +30,7 @@ public class McAggregatorExcel {
     public static Map<String, Integer> marketSourceMap = new HashMap<String, Integer>();
     /**
      * market_source_symbol表，记录lp_symbol和id的关系
+     * key值策略：lp_code + "_" + market_source_symbol
      */
     public static Map<String, Long> lpSymbolMap = new HashMap<String, Long>();
     /**
@@ -119,7 +120,7 @@ public class McAggregatorExcel {
                     msSymbol.setCurrency("");
                 }
 
-                lpSymbolMap.put(msSymbol.getLpSymbol(), msSymbol.getId());
+                lpSymbolMap.put(convertLpCode(msSymbol.getLpCode()) + "_" + msSymbol.getLpSymbol(), msSymbol.getId());
 
                 // 开始拼接SQL
                 sql.append("(");
@@ -303,7 +304,7 @@ public class McAggregatorExcel {
                 sql.append(", '");
                 sql.append(convertLpCode(item.getLpCode()));
                 sql.append("', ");
-                sql.append(lpSymbolMap.get(item.getMarketSourceSymbol()));
+                sql.append(lpSymbolMap.get(convertLpCode(item.getLpCode()) + "_" + item.getMarketSourceSymbol()));
                 sql.append(", '");
                 sql.append(item.getMarketSourceSymbol());
                 sql.append("', ");
