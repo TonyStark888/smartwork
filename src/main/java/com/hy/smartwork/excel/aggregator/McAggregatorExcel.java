@@ -30,7 +30,7 @@ public class McAggregatorExcel {
     public static Map<String, Integer> marketSourceMap = new HashMap<String, Integer>();
     /**
      * market_source_symbol表，记录lp_symbol和id的关系
-     * key值策略：lp_code + "_" + market_source_symbol
+     * key值策略：lp_code + "_" + market_source_symbol "_" + symbol_sub_type
      */
     public static Map<String, Long> lpSymbolMap = new HashMap<String, Long>();
     /**
@@ -44,7 +44,7 @@ public class McAggregatorExcel {
 
 
     public static void main(String[] args) throws Exception {
-        File file = new File("C:\\Users\\yingh\\Desktop\\mc-aggregator基础数据配置表.xlsx");
+        File file = new File("C:\\Users\\yingh\\Desktop\\基础数据配置表.xlsx");
 
         String fileName = file.getName();
         //验证图片格式
@@ -120,7 +120,7 @@ public class McAggregatorExcel {
                     msSymbol.setCurrency("");
                 }
 
-                lpSymbolMap.put(convertLpCode(msSymbol.getLpCode()) + "_" + msSymbol.getLpSymbol(), msSymbol.getId());
+                lpSymbolMap.put(convertLpCode(msSymbol.getLpCode()) + "_" + msSymbol.getLpSymbol() + "_" + TradingInstrumentSubTypeEnum.fromDesc(msSymbol.getSymbolType(), msSymbol.getSymbolSubType()), msSymbol.getId());
 
                 // 开始拼接SQL
                 sql.append("(");
@@ -304,7 +304,7 @@ public class McAggregatorExcel {
                 sql.append(", '");
                 sql.append(convertLpCode(item.getLpCode()));
                 sql.append("', ");
-                sql.append(lpSymbolMap.get(convertLpCode(item.getLpCode()) + "_" + item.getMarketSourceSymbol()));
+                sql.append(lpSymbolMap.get(convertLpCode(item.getLpCode()) + "_" + item.getMarketSourceSymbol() + "_" + TradingInstrumentSubTypeEnum.fromDesc(item.getSymbolType(), item.getSymbolSubType())));
                 sql.append(", '");
                 sql.append(item.getMarketSourceSymbol());
                 sql.append("', ");
