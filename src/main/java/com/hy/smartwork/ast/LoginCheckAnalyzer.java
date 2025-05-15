@@ -15,9 +15,6 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * @author huangying
- */
 public class LoginCheckAnalyzer {
 
     // 缓存分析结果：方法名 -> 是否需要登录
@@ -26,19 +23,24 @@ public class LoginCheckAnalyzer {
     /**
      * 分析指定包下的所有 Controller 类
      */
-    public void analyzeControllers(String basePackage) throws FileNotFoundException {
-        Path sourcePath = Paths.get("src/main/java", basePackage.replace(".", "/"));
-        File sourceDir = sourcePath.toFile();
+    public void analyzeControllers(String basePackage) {
+        try {
+            Path sourcePath = Paths.get("src/main/java", basePackage.replace(".", "/"));
+            File sourceDir = sourcePath.toFile();
 
-        if (!sourceDir.exists()) {
-            throw new FileNotFoundException("源码目录不存在: " + sourceDir.getAbsolutePath());
+            if (!sourceDir.exists()) {
+                System.err.println("源码目录不存在: " + sourceDir.getAbsolutePath());
+            }
+
+            // 遍历所有 Java 文件
+            for (File file : sourceDir.listFiles((dir, name) -> name.endsWith(".java"))) {
+                CompilationUnit cu = StaticJavaParser.parse(file);
+                cu.accept(new ControllerVisitor(), null);
+            }
+        } catch (FileNotFoundException e) {
+            System.err.println("源码文件不存在: " + e.getMessage());
         }
 
-        // 遍历所有 Java 文件
-        for (File file : sourceDir.listFiles((dir, name) -> name.endsWith(".java"))) {
-            CompilationUnit cu = StaticJavaParser.parse(file);
-            cu.accept(new ControllerVisitor(), null);
-        }
     }
 
     /**
@@ -100,10 +102,22 @@ public class LoginCheckAnalyzer {
         @Override
         public void visit(MethodCallExpr n, Void arg) {
             // 检测是否调用了 messageResourceUtil.getMessage("10100050")
-            if (n.getNameAsString().equals("getMessage")
+            boolean tokenCheck1 = n.getNameAsString().equals("getMessage")
                     && n.getScope().isPresent()
                     && n.getScope().get().toString().equals("messageResourceUtil")
-                    && n.getArgument(0).toString().contains("\"10100050\"")) {
+                    && n.getArgument(0).toString().contains("\"10100050\"");
+
+            // 检测是否调用了 messageResourceUtil.getMessage("10100004")
+            boolean tokenCheck2 = n.getNameAsString().equals("getMessage")
+                    && n.getScope().isPresent()
+                    && n.getScope().get().toString().equals("messageResourceUtil")
+                    && n.getArgument(0).toString().contains("\"10100004\"");
+
+            boolean tokenCheck3 = n.getNameAsString().equals("getMessage")
+                    && n.getScope().isPresent()
+                    && n.getScope().get().toString().equals("messageResourceUtil")
+                    && n.getArgument(0).toString().contains("\"10100017\"");
+            if (tokenCheck1 || tokenCheck2 || tokenCheck3) {
                 hasTokenCheck = true;
             }
             super.visit(n, arg);
@@ -111,8 +125,17 @@ public class LoginCheckAnalyzer {
 
         @Override
         public void visit(NameExpr n, Void arg) {
-            // 检测是否引用了 Constant.TOKEN_IS_NULL或Constant.TOKEN_INVALID
-            if ("Constant.TOKEN_IS_NULL".equalsIgnoreCase(n.getParentNode().get().toString()) || "Constant.TOKEN_INVALID".equalsIgnoreCase(n.getParentNode().get().toString())) {
+            String fieldName = n.getParentNode().get().toString();
+            // 检测是否引用了 Constant.TOKEN_IS_NULL、Constant.TOKEN_INVALID、Constant.TOKEN_EXPIRED
+            // 检测是否引用了枚举 ApiCommExConstant.NOT_LOGIN
+            // 检测是否引用了枚举 ApiCommExConstant.TOKEN_EXPIRE
+            boolean tokenFieldCheck1 = "Constant.TOKEN_IS_NULL".equalsIgnoreCase(fieldName);
+            boolean tokenFieldCheck2 = "Constant.TOKEN_INVALID".equalsIgnoreCase(fieldName);
+            boolean tokenFieldCheck3 = "Constant.TOKEN_EXPIRED".equalsIgnoreCase(fieldName);
+
+            boolean tokenFieldCheck4 = "ApiCommExConstant.NOT_LOGIN".equalsIgnoreCase(fieldName);
+            boolean tokenFieldCheck5 = "ApiCommExConstant.TOKEN_EXPIRE".equalsIgnoreCase(fieldName);
+            if (tokenFieldCheck1 || tokenFieldCheck2 || tokenFieldCheck3 || tokenFieldCheck4 || tokenFieldCheck5) {
                 hasTokenCheck = true;
             }
             super.visit(n, arg);

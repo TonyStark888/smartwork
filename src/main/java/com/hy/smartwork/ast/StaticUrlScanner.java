@@ -1,72 +1,165 @@
 package com.hy.smartwork.ast;
 
-import org.reflections.Reflections;
-import org.reflections.scanners.Scanners;
-import org.reflections.util.ConfigurationBuilder;
-import org.springframework.web.bind.annotation.*;
+import com.hy.smartwork.ast.dto.UrlTokenDto;
+import com.hy.smartwork.ast.util.ScanControllerUtil;
+import org.apache.commons.lang3.StringUtils;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
-import java.net.URL;
 import java.util.*;
 
 /**
+ * 动态解析当前工程的Controller类
+ * 备注：只能放在原工程里使用，不能跨工程，因为是测试代码，原生产工程不方便提交，特此在这备份
+ *
  * @author huangying
  */
 public class StaticUrlScanner {
 
     private static final LoginCheckAnalyzer loginAnalyzer = new LoginCheckAnalyzer();
 
-    private static StringBuffer urlStr = new StringBuffer();
+    /**
+     * 程序推断的token权限记录
+     */
+    private static List<UrlTokenDto> urlTokenDtos = new ArrayList<>();
 
-    public static void main(String[] args) {
-        // 按包扫描，包目录下全部类都需要
-        scanControllers("cn.com.vtg.controller.activities", null);
-        scanControllers("cn.com.vtg.controller.crm.crmactivity", null);
-        scanControllers("cn.com.vtg.controller.events", null);
+    /**
+     * 人工核实确认URL的token权限记录
+     * 允许有些内容跟程序推断是一致的
+     */
+    private static Map<String, Integer> manualUrls = new HashMap<>();
 
-        // 仅需要指定包目录下的部分类
-        Set<Class<?>> controllers = new HashSet<>();
-//        controllers.add(UserCouponController.class);
-        scanControllers("cn.com.vtg.controller.user", controllers);
+    static {
+        /*
+         * 0 必需token
+         * 1 可选token
+         * 2 不需要token
+         */
+        // 场景1：程序推断为必需token，之前人工推断为可选，二次确认为可选token（程序推断错误）
+        manualUrls.put("/events/addClicksCount/v1", 1);
+        manualUrls.put("/fifa/getTC/v1", 1);
+        manualUrls.put("/promoLibrary/eligible/v1", 1);
+        manualUrls.put("/signalProviderPromo/getLeaderboard/v1", 1);
+        manualUrls.put("/auOlympic/getDetail/v1", 1);
+        manualUrls.put("/olympic/getDetails/v1", 1);
+        manualUrls.put("/rugby/getUserChampionDetails/v1", 1);
+        manualUrls.put("/promoLibrary/getLeaderBoard/v1", 1);
+        manualUrls.put("/euroCup/getMatchList/v1", 1);
+        manualUrls.put("/demoTradingCompetition/getDetails/v1", 1);
+        manualUrls.put("/euroCup/getUserRanking/v1", 1);
+        manualUrls.put("/fifa/getMatchList/v1", 1);
+        manualUrls.put("/signalProviderPromo/getDetails/v1", 1);
+        manualUrls.put("/promoLibrary/getCountryLeaderBoard/v1", 1);
+        manualUrls.put("/euroCup/showChampion/v1", 1);
+        manualUrls.put("/productGuessingRF/home/v1", 1);
+        manualUrls.put("/fourthMay/banner/v1", 1);
 
-        System.out.println(urlStr);
+        // 场景2：程序推断为可选token，之前人工判断为必需token，二次确认为可选token（人工推断错误）
+        manualUrls.put("/roulette/getDetail/v1", 1);
+        manualUrls.put("/usercoupon/bit/checkExchangeCouponBlacklist/v1", 2);
+        manualUrls.put("/usercoupon/qUseLossCoupTrades/v1", 2);
+        manualUrls.put("/events/stApp/getEventsBlackWhiteList/v1", 2);
+        manualUrls.put("/usercoupon/bit/sendCouponMessage/v1", 2);
+
+        // 场景3：程序推断为必需token，但之前人工判断为可选token，二次确认为必需token（人工推断错误）==》调整原有的白名单列表
+        manualUrls.put("/productGuessingRF/vote/v1", 0);
+        manualUrls.put("/nonAgricultural/predict/v1", 0);
+
+        // 场景4：程序推断为可选token，之前人工判断为必需token，二次确认为必需token（程序推断错误）
+        manualUrls.put("/fifa/redeem/v1", 0);
+        manualUrls.put("/easter/competeLotteryDraw/v1", 0);
+        manualUrls.put("/stockActivity/randomStockList/v1", 0);
+        manualUrls.put("/fifa/guess/v1", 0);
+        manualUrls.put("/fifa/collectReward/v1", 0);
+        manualUrls.put("/fifa/getRanking/v1", 0);
+        manualUrls.put("/fifa/getUserInfo/v1", 0);
+        manualUrls.put("/fifa/getChampionRanking/v1", 0);
+        manualUrls.put("/fifa/getUserAccount/v1", 0);
+        manualUrls.put("/fifa/popup/v1", 0);
+        manualUrls.put("/fifa/guessRatio/v1", 0);
+        manualUrls.put("/valentine/init/v1", 0);
+        manualUrls.put("/newCredit/isJoinCreditActivity/v1", 0);
+        manualUrls.put("/stockActivity/stockList/v1", 0);
+        manualUrls.put("/PUEaster/sendCoupon/v1", 0);
+        manualUrls.put("/stockActivity/stockListDetail/v1", 0);
+        manualUrls.put("/stockActivity/stockListDetail/v2", 0);
+        manualUrls.put("/newCredit/redeemCredit/v1", 0);
+
+
+        // 场景4：已经下线的活动，默认不加入白名单，按必需token处理
+        manualUrls.put("/tradeLossActivity/getRedeemedList/v1", 0);
+
+        // 场景5：邀请活动相关的，全部为必需token
+        manualUrls.put("/invite/detail/v1", 0);
+        manualUrls.put("/invite/coupon/v1", 0);
+        manualUrls.put("/invite/coupon/agree/v1", 0);
+        manualUrls.put("/invite/agree/v1", 0);
+        manualUrls.put("/invite/channel/v1", 0);
+        manualUrls.put("/invite/onOff/v1", 0);
+        manualUrls.put("/invite/test/v1", 0);
+        manualUrls.put("/invite/delete/v1", 0);
+        manualUrls.put("/invite/data/v1", 0);
+        manualUrls.put("/invite/sendEmail/v1", 0);
+        manualUrls.put("/invite/jumpData/v1", 0);
     }
 
-    private static void scanControllers(String basePackage, Set<Class<?>> controllers) {
-        try {
-            loginAnalyzer.analyzeControllers(basePackage);
-        } catch (FileNotFoundException e) {
-            throw new RuntimeException(e);
+    public static void main(String[] args) {
+        loginAnalyzer.analyzeControllers("com.hy.controller.activities");
+        loginAnalyzer.analyzeControllers("com.hy.controller.crm.crmactivity");
+        loginAnalyzer.analyzeControllers("com.hy.controller.events");
+        loginAnalyzer.analyzeControllers("com.hy.controller.user");
+        loginAnalyzer.analyzeControllers("com.hy.controller.invite");
+
+        Set<Class<?>> controllers = new HashSet<>();
+        // 按包扫描，包目录下全部类都需要
+        controllers.addAll(ScanControllerUtil.scanControllers("com.hy.controller.activities", true));
+        controllers.addAll(ScanControllerUtil.scanControllers("com.hy.controller.crm.crmactivity", true));
+        controllers.addAll(ScanControllerUtil.scanControllers("com.hy.controller.events", true));
+        controllers.addAll(ScanControllerUtil.scanControllers("com.hy.controller.user", false));
+        controllers.addAll(ScanControllerUtil.scanControllers("com.hy.controller.invite", true));
+
+        // 额外处理的类
+        // 仅需要指定包目录下的某个类
+//        controllers.add(UserCouponController.class);
+        // 需要移除的类
+//        controllers.remove(TestNewcomerCouponController.class);
+
+        parseControllers(controllers);
+
+        for (UrlTokenDto dto : urlTokenDtos) {
+            if (StringUtils.isNotEmpty(dto.output())) {
+                System.out.println(dto.output());
+            }
+//            if (StringUtils.isNotEmpty(dto.outputForYml())) {
+//                System.out.println(dto.outputForYml());
+//            }
+//            if (StringUtils.isNotEmpty(dto.outputForProgram())) {
+//                System.out.println(dto.outputForProgram());
+//            }
         }
+    }
 
-        Set<URL> packageUrls = getPackageUrls(basePackage);
 
-        Reflections reflections = new Reflections(new ConfigurationBuilder()
-                .setUrls(packageUrls)
-                .setScanners(
-                        Scanners.TypesAnnotated, // 扫描类注解
-                        Scanners.MethodsAnnotated // 扫描方法注解
-                ));
-
-        // 获取所有 Controller 类（支持 @Controller 和 @RestController）
-        if (null == controllers) {
-            controllers = reflections.getTypesAnnotatedWith(RestController.class);
-        }
-
-        if (controllers.isEmpty()) {
-            System.err.println("未找到任何 Controller 类，请检查包路径和注解配置！");
-            return;
-        }
-        System.err.println(String.format("扫描 %s 包下面共 %d 个类", basePackage, controllers.size()));
-
+    /**
+     * 解析Controller类
+     *
+     * @param controllers
+     */
+    private static void parseControllers(Set<Class<?>> controllers) {
         for (Class<?> clazz : controllers) {
-            String classPath = getClassPath(clazz);
+            String classPath = ScanControllerUtil.getClassPath(clazz);
+            UrlTokenDto dto = null;
             for (Method method : clazz.getDeclaredMethods()) {
-                String[] urls = getMethodUrls(method, classPath);
+                String[] urls = ScanControllerUtil.getMethodUrls(method, classPath);
                 if (urls.length == 0) {
+                    continue;
+                }
+
+                // 优先从人工核实的URL获取结果
+                if (manualUrls.containsKey(urls[0])) {
+                    dto = new UrlTokenDto();
+                    dto.setUrl(urls[0]);
+                    dto.setTokenType(manualUrls.get(urls[0]));
+                    urlTokenDtos.add(dto);
                     continue;
                 }
 
@@ -74,125 +167,17 @@ public class StaticUrlScanner {
                 String className = clazz.getSimpleName();
                 String key = className + "-" + method.getName();
                 boolean requiresLogin = loginAnalyzer.requiresLogin(key);
+
+                dto = new UrlTokenDto();
                 if (requiresLogin) {
-                    urlStr.append(String.format("%-20s \t 需要token", urls[0]));
-                    urlStr.append("\n");
+                    dto.setUrl(urls[0]);
+                    dto.setTokenType(0);
                 } else {
-                    urlStr.append(String.format("%-20s \t 可选token", urls[0]));
-                    urlStr.append("\n");
+                    dto.setUrl(urls[0]);
+                    dto.setTokenType(1);
                 }
+                urlTokenDtos.add(dto);
             }
-        }
-    }
-
-    // 获取指定包对应的物理路径（如 com.example.controller → /project/src/main/java/com/example/controller）
-    public static Set<URL> getPackageUrls(String basePackage) {
-        String relativePath = basePackage.replace('.', File.separatorChar);
-        String projectRoot = System.getProperty("user.dir"); // 项目根目录
-        File packageDir = new File(projectRoot + "/target/classes/" + relativePath);
-
-        if (!packageDir.exists()) {
-            System.err.println("包目录不存在: " + packageDir.getAbsolutePath());
-            return Collections.emptySet();
-        }
-
-        try {
-            return Collections.singleton(packageDir.toURI().toURL());
-        } catch (Exception e) {
-            return Collections.emptySet();
-        }
-    }
-
-    private static String getClassPath(Class<?> clazz) {
-        RequestMapping classMapping = clazz.getAnnotation(RequestMapping.class);
-        if (classMapping != null && classMapping.value().length > 0) {
-            return classMapping.value()[0];
-        }
-        return "";
-    }
-
-    private static void scanMethods(Class<?> clazz, String classPath) {
-        for (Method method : clazz.getDeclaredMethods()) {
-            processMappingAnnotation(method, GetMapping.class, "GET", classPath);
-            processMappingAnnotation(method, PostMapping.class, "POST", classPath);
-            processMappingAnnotation(method, PutMapping.class, "PUT", classPath);
-            processMappingAnnotation(method, DeleteMapping.class, "DELETE", classPath);
-            processMappingAnnotation(method, PatchMapping.class, "PATCH", classPath);
-            processMappingAnnotation(method, RequestMapping.class, null, classPath);
-        }
-    }
-
-    private static void processMappingAnnotation(Method method,
-                                                 Class<? extends Annotation> annotationClass,
-                                                 String httpMethod,
-                                                 String classPath) {
-        Annotation annotation = method.getAnnotation(annotationClass);
-        if (annotation != null) {
-            String[] methodPaths = getAnnotationPaths(annotation);
-
-            for (String path : methodPaths) {
-                String fullPath = combinePaths(classPath, path);
-//                System.out.printf("%s%n", fullPath);
-                urlStr.append(fullPath);
-                urlStr.append("\n");
-            }
-        }
-    }
-
-    private static String[] getAnnotationPaths(Annotation annotation) {
-        try {
-            Method valueMethod = annotation.annotationType().getMethod("value");
-            String[] paths = (String[]) valueMethod.invoke(annotation);
-            return (paths.length > 0) ? paths : new String[]{""};
-        } catch (Exception e) {
-            return new String[]{""};
-        }
-    }
-
-    // 获取方法的 URL（复用之前的逻辑）
-    private static String[] getMethodUrls(Method method, String classPath) {
-        List<String> urls = new ArrayList<>();
-        processMappingAnnotation(method, GetMapping.class, "GET", classPath, urls);
-        processMappingAnnotation(method, PostMapping.class, "POST", classPath, urls);
-        processMappingAnnotation(method, RequestMapping.class, "", classPath, urls);
-        // 其他 HTTP 方法处理...
-        return urls.toArray(new String[0]);
-    }
-
-    private static void processMappingAnnotation(Method method,
-                                                 Class<? extends Annotation> annotationClass,
-                                                 String httpMethod,
-                                                 String classPath,
-                                                 List<String> urls) {
-        Annotation annotation = method.getAnnotation(annotationClass);
-        if (annotation != null) {
-            String[] methodPaths = getAnnotationPaths(annotation);
-            for (String path : methodPaths) {
-                urls.add(combinePaths(classPath, path));
-            }
-        }
-    }
-
-    private static String[] getHttpMethods(Annotation annotation) {
-        if (annotation instanceof RequestMapping) {
-            RequestMapping mapping = (RequestMapping) annotation;
-            if (mapping.method().length > 0) {
-                return Arrays.stream(mapping.method())
-                        .map(Enum::name)
-                        .toArray(String[]::new);
-            }
-            return new String[]{"ANY"};
-        }
-        return new String[]{"ANY"};
-    }
-
-    private static String combinePaths(String path1, String path2) {
-        if (path1.endsWith("/") && path2.startsWith("/")) {
-            return path1 + path2.substring(1);
-        } else if (!path1.endsWith("/") && !path2.startsWith("/") && !path1.isEmpty()) {
-            return path1 + "/" + path2;
-        } else {
-            return path1 + path2;
         }
     }
 }
